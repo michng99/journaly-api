@@ -33,7 +33,7 @@ A Spring Boot REST API for a journaling application that provides secure user au
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/journaly-api.git
+   git clone https://github.com/michng99/journaly-api.git
    cd journaly-api
    ```
 
@@ -111,4 +111,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Your Name - your.email@example.com
 
-Project Link: [https://github.com/yourusername/journaly-api](https://github.com/yourusername/journaly-api)
+Project Link: [https://github.com/michng99/journaly-api](https://github.com/michng99/journaly-api)
