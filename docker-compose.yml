@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: journaly-postgres
+    environment:
+      POSTGRES_DB: journaly
+      POSTGRES_USER: journaly_user
+      POSTGRES_PASSWORD: journaly_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - journaly-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U journaly_user -d journaly"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Journaly API Application
+  api:
+    build: .
+    container_name: journaly-api
+    environment:
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/journaly
+      - DATABASE_USERNAME=journaly_user
+      - DATABASE_PASSWORD=journaly_password
+      - DATABASE_DRIVER=org.postgresql.Driver
+      - SECURITY_USER_NAME=admin
+      - SECURITY_USER_PASSWORD=admin123
+      - AZURE_AI_KEY=${AZURE_AI_KEY:-your-azure-key-here}
+      - AZURE_AI_ENDPOINT=${AZURE_AI_ENDPOINT:-https://your-endpoint.cognitiveservices.azure.com/}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - journaly-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # pgAdmin for database management (optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: journaly-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@journaly.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - journaly-network
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  journaly-network:
+    driver: bridge
