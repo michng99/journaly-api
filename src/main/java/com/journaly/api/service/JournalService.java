@@ -12,7 +12,10 @@ import com.journaly.api.repository.TagRepository;
 import com.journaly.api.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -51,8 +54,14 @@ public class JournalService {
 
     private static final Random random = new Random();
 
+    @Transactional
     public CreateEntryResponse createJournalEntry(String content) {
         log.info("Received request to create new journal entry.");
+
+        // Validate input
+        if (content == null || content.trim().isEmpty()) {
+            throw new IllegalArgumentException("Content cannot be null or empty");
+        }
 
         User currentUser = userRepository.findFirstByOrderByCreatedAtAsc()
                 .orElseGet(() -> {
@@ -102,23 +111,35 @@ public class JournalService {
      * @param tagNames Danh sách tên các tag.
      * @return Bài viết đã được cập nhật với các tag mới.
      */
+    @Transactional
     public JournalEntry updateTagsForEntry(UUID entryId, List<String> tagNames) {
         log.info("Updating tags for entry ID: {}", entryId);
+        
+        // Validate inputs
+        if (entryId == null) {
+            throw new IllegalArgumentException("Entry ID cannot be null");
+        }
+        if (tagNames == null) {
+            throw new IllegalArgumentException("Tag names cannot be null");
+        }
+
         JournalEntry entry = journalEntryRepository.findById(entryId)
                 .orElseThrow(() -> new RuntimeException("Entry not found with id: " + entryId));
 
         entry.getTags().clear(); // Xóa các tag cũ để cập nhật mới
 
         for (String tagName : tagNames) {
-            // Tìm xem tag đã tồn tại chưa, nếu chưa thì tạo tag mới
-            Tag tag = tagRepository.findByName(tagName)
-                    .orElseGet(() -> {
-                        log.info("Tag '{}' not found. Creating new one.", tagName);
-                        Tag newTag = new Tag();
-                        newTag.setName(tagName);
-                        return tagRepository.save(newTag);
-                    });
-            entry.getTags().add(tag);
+            if (tagName != null && !tagName.trim().isEmpty()) {
+                // Tìm xem tag đã tồn tại chưa, nếu chưa thì tạo tag mới
+                Tag tag = tagRepository.findByName(tagName)
+                        .orElseGet(() -> {
+                            log.info("Tag '{}' not found. Creating new one.", tagName);
+                            Tag newTag = new Tag();
+                            newTag.setName(tagName);
+                            return tagRepository.save(newTag);
+                        });
+                entry.getTags().add(tag);
+            }
         }
 
         log.info("Saving entry with updated tags. Entry ID: {}", entryId);
@@ -157,5 +178,22 @@ public class JournalService {
 
     private List<String> selectSuggestedTags(TextSentiment sentiment) {
         return SUGGESTED_TAGS.getOrDefault(sentiment, List.of());
+    }
+
+    /**
+     * Get all journal entries with pagination
+     */
+    @Transactional(readOnly = true)
+    public Page<JournalEntry> getAllEntries(Pageable pageable) {
+        return journalEntryRepository.findAll(pageable);
+    }
+
+    /**
+     * Get journal entry by ID
+     */
+    @Transactional(readOnly = true)
+    public JournalEntry getEntryById(UUID entryId) {
+        return journalEntryRepository.findById(entryId)
+                .orElseThrow(() -> new RuntimeException("Entry not found with id: " + entryId));
     }
 }

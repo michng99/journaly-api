@@ -1,50 +1,47 @@
-# Use OpenJDK 21 as the base image
-FROM openjdk:21-jdk-slim
-
-# Set the working directory in the container
-WORKDIR /app
-
-# Copy the Maven wrapper files
-COPY mvnw .
-COPY mvnw.cmd .
-COPY .mvn .mvn
-
-# Copy the pom.xml file
-COPY pom.xml .
-
-# Download dependencies (this layer will be cached if pom.xml doesn't change)
-RUN ./mvnw dependency:go-offline -B
-
-# Copy the source code
-COPY src src
-
-# Build the application
-RUN ./mvnw clean package -DskipTests
-
-# Create a new stage for the runtime
-FROM openjdk:21-jre-slim
+# Multi-stage build for optimized production image
+FROM openjdk:21-jdk-slim AS builder
 
 # Set working directory
 WORKDIR /app
 
-# Create a non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Copy Maven wrapper and pom.xml
+COPY .mvn/ .mvn/
+COPY mvnw pom.xml ./
 
-# Copy the JAR file from the build stage
-COPY --from=0 /app/target/*.jar app.jar
+# Download dependencies (for better caching)
+RUN ./mvnw dependency:go-offline -B
 
-# Change ownership of the app directory to the appuser
-RUN chown -R appuser:appuser /app
+# Copy source code
+COPY src ./src
 
-# Switch to the non-root user
-USER appuser
+# Build the application
+RUN ./mvnw clean package -DskipTests
 
-# Expose the port the app runs on
+# Production stage
+FROM openjdk:21-jre-slim
+
+# Create non-root user for security
+RUN groupadd -r spring && useradd -r -g spring spring
+
+# Set working directory
+WORKDIR /app
+
+# Copy the built jar from builder stage
+COPY --from=builder /app/target/api-*.jar app.jar
+
+# Change ownership to spring user
+RUN chown spring:spring app.jar
+USER spring
+
+# Expose port
 EXPOSE 8080
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8080/actuator/health || exit 1
+  CMD curl -f http://localhost:8080/api/entries/health || exit 1
+
+# Set JVM options for production
+ENV JAVA_OPTS="-Xmx512m -Xms256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
 
 # Run the application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

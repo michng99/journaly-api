@@ -51,7 +51,7 @@ public class JournalEntry {
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 
-    @ManyToMany(fetch = FetchType.EAGER, cascade = CascadeType.PERSIST)
+    @ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @JoinTable(
             name = "entry_tags",
             joinColumns = @JoinColumn(name = "entry_id"),

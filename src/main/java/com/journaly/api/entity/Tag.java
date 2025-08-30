@@ -19,7 +19,7 @@ public class Tag {
     @Column(name = "user_id")
     private UUID userId;
 
-    @ManyToMany(mappedBy = "tags")
+    @ManyToMany(mappedBy = "tags", fetch = FetchType.LAZY)
     private Set<JournalEntry> entries = new HashSet<>();
 
     // --- GETTERS AND SETTERS ---

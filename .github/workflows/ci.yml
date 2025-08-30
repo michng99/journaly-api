@@ -6,92 +6,175 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: journaly/api
+
 jobs:
   test:
     runs-on: ubuntu-latest
     
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 3s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
-    - uses: actions/checkout@v4
-    
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
-    - name: Cache Maven packages
-      uses: actions/cache@v4
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v3
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-    
+
     - name: Run tests
-      run: ./mvnw clean test
-    
+      run: |
+        ./mvnw clean test
+      env:
+        SPRING_PROFILES_ACTIVE: test
+        DATABASE_URL: jdbc:postgresql://localhost:5432/testdb
+        DATABASE_USERNAME: postgres
+        DATABASE_PASSWORD: postgres
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+
     - name: Run integration tests
-      run: ./mvnw verify
-    
+      run: |
+        ./mvnw verify -P integration-tests
+      env:
+        SPRING_PROFILES_ACTIVE: test
+
     - name: Generate test report
       uses: dorny/test-reporter@v1
-      if: always()
+      if: success() || failure()
       with:
         name: Maven Tests
         path: target/surefire-reports/*.xml
         reporter: java-junit
-        fail-on-error: true
 
-  build:
-    needs: test
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: target/site/jacoco/jacoco.xml
+
+  security-scan:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
     steps:
-    - uses: actions/checkout@v4
-    
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run OWASP Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'journaly-api'
+        path: '.'
+        format: 'ALL'
+
+    - name: Upload OWASP results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: reports/dependency-check-report.sarif
+
+  build-and-push:
+    needs: [test, security-scan]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
-    - name: Cache Maven packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-m2
-    
-    - name: Build application
-      run: ./mvnw clean package -DskipTests
-    
-    - name: Build Docker image
-      run: |
-        docker build -t journaly-api:${{ github.sha }} .
-        docker tag journaly-api:${{ github.sha }} journaly-api:latest
-    
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: jar-artifact
-        path: target/*.jar
 
-  security-scan:
+    - name: Build application
+      run: |
+        ./mvnw clean package -DskipTests
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy-staging:
+    needs: build-and-push
     runs-on: ubuntu-latest
-    
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: staging
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
+    - name: Deploy to staging
+      run: |
+        echo "Deploying to staging environment..."
+        # Add your deployment scripts here
+        # e.g., kubectl apply, helm upgrade, etc.
+
+  deploy-production:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production environment..."
+        # Add your production deployment scripts here
