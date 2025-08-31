@@ -1,5 +1,6 @@
 package com.journaly.api.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import org.hibernate.annotations.CreationTimestamp;
 import java.math.BigDecimal;
@@ -12,6 +13,7 @@ import java.util.UUID;
 @Table(name = "journal_entries")
 public class JournalEntry {
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
