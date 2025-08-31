@@ -8,6 +8,9 @@ WORKDIR /app
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 
+# Make Maven wrapper executable
+RUN chmod +x ./mvnw
+
 # Download dependencies (for better caching)
 RUN ./mvnw dependency:go-offline -B
 
@@ -19,6 +22,9 @@ RUN ./mvnw clean package -DskipTests
 
 # Production stage
 FROM openjdk:21-jre-slim
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
 RUN groupadd -r spring && useradd -r -g spring spring
@@ -38,7 +44,7 @@ EXPOSE 8080
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8080/api/entries/health || exit 1
+  CMD curl -f http://localhost:8080/api/health || exit 1
 
 # Set JVM options for production
 ENV JAVA_OPTS="-Xmx512m -Xms256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"

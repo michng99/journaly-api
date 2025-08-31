@@ -135,7 +135,7 @@ jobs:
         echo "Service deployed at: $SERVICE_URL"
         
         # Health check
-        curl -f "$SERVICE_URL/api/entries/health" || exit 1
+        curl -f "$SERVICE_URL/api/health" || exit 1
         
         echo "✅ Deployment verification successful!"
 
